@@ -1,0 +1,17 @@
+{
+  "name": "4llbotracker-bot",
+  "version": "1.0.0",
+  "description": "Discord Bot untuk monitoring FiveM Server - 4llboTracker",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node --watch bot.js"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.97",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5",
+    "mysql2": "^3.22.2",
+    "node-fetch": "^2.7.0"
+  }
+}

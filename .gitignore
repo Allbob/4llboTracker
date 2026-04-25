@@ -1,0 +1,9 @@
+# Menghiraukan folder instalasi library Node.js
+bot/node_modules/
+
+# MENGHIRAUKAN (IGNORE) FILE KREDENSIAL YANG SANGAT RAHASIA
+bot/.env
+
+# Hiraukan folder sistem OS
+.DS_Store
+Thumbs.db

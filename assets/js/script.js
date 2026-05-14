@@ -128,10 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (isCfx) {
                 const cfxCode = actualIp.split('cfx.re/join/')[1].split('/')[0];
-                const proxyUrl = 'https://api.allorigins.win/raw?url=';
-                const res = await fetch(`${proxyUrl}${encodeURIComponent(`https://servers-frontend.fivem.net/api/servers/single/${cfxCode}`)}`);
-                if (!res.ok) throw new Error();
-                const data = await res.json();
+                const data = await fetchWithFallback(`https://servers-frontend.fivem.net/api/servers/single/${cfxCode}`);
                 const info = data.Data;
                 const clients = info.clients !== undefined ? info.clients : (info.players ? info.players.length : 0);
                 const max = info.sv_maxclients || info.vars?.sv_maxClients || '32';
@@ -139,17 +136,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 cardElement.querySelector('.fav-card-ping').innerHTML = `<i class="fa-solid fa-signal" style="color:var(--primary);"></i> Online`;
             } else {
                 if (!actualIp.includes(':')) actualIp += ':30120';
-                const proxyUrl = 'https://api.allorigins.win/raw?url=';
-                const res = await fetch(`${proxyUrl}${encodeURIComponent(`http://${actualIp}/info.json`)}`);
-                if (!res.ok) throw new Error();
-
-                const info = await res.json();
-                const playersRes = await fetch(`${proxyUrl}${encodeURIComponent(`http://${actualIp}/players.json`)}`);
-                if (!playersRes.ok) throw new Error();
-
-                const players = await playersRes.json();
+                const info = await fetchWithFallback(`http://${actualIp}/info.json`);
+                const players = await fetchWithFallback(`http://${actualIp}/players.json`);
                 const max = info.vars?.sv_maxClients || '32';
-
                 cardElement.querySelector('.fav-card-players').innerHTML = `<i class="fa-solid fa-users"></i> ${players.length}/${max}`;
                 cardElement.querySelector('.fav-card-ping').innerHTML = `<i class="fa-solid fa-signal" style="color:var(--primary);"></i> Online`;
             }
@@ -160,6 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     };
+
 
     // Load History & Favorites
     const loadHistory = () => {
@@ -408,6 +398,35 @@ document.addEventListener('DOMContentLoaded', () => {
         playerSection.classList.remove('hidden'); // Show table with skeletons
     };
 
+    // --- Multi-Proxy Fallback System --- //
+    const PROXIES = [
+        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+        (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
+    ];
+
+    const fetchWithFallback = async (url) => {
+        let lastError = null;
+        for (const proxyBuilder of PROXIES) {
+            try {
+                const proxyUrl = proxyBuilder(url);
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 8000);
+                const res = await fetch(proxyUrl, { signal: controller.signal });
+                clearTimeout(timeout);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const text = await res.text();
+                // Validate it's actual JSON
+                return JSON.parse(text);
+            } catch (e) {
+                lastError = e;
+                console.warn(`Proxy gagal, mencoba selanjutnya...`, e.message);
+            }
+        }
+        throw new Error('Semua proxy gagal. Coba lagi beberapa saat atau cek koneksi internet kamu.');
+    };
+
     const fetchServerData = async (isSilent = false) => {
         let ip = inputServer.value.trim();
         if (!ip) {
@@ -430,12 +449,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (cfxCode) {
                 actualIp = `cfx.re/join/${cfxCode}`;
-                const proxyUrl = 'https://api.allorigins.win/raw?url=';
-                const cfxRes = await fetch(`${proxyUrl}${encodeURIComponent(`https://servers-frontend.fivem.net/api/servers/single/${cfxCode}`)}`);
-                if (!cfxRes.ok) throw new Error("Gagal mengambil data dari CFX. Pastikan link server valid.");
-
-                const cfxData = await cfxRes.json();
-                if (!cfxData.Data) throw new Error("Server tidak ditemukan.");
+                const cfxData = await fetchWithFallback(`https://servers-frontend.fivem.net/api/servers/single/${cfxCode}`);
+                if (!cfxData.Data) throw new Error("Server tidak ditemukan. Pastikan kode CFX valid.");
 
                 infoNode = cfxData.Data;
                 playersData = infoNode.players || [];
@@ -451,15 +466,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 ip = ip.replace(/^https?:\/\//, '');
                 actualIp = ip;
 
-                const proxyUrl = 'https://api.allorigins.win/raw?url=';
-
-                const infoRes = await fetch(`${proxyUrl}${encodeURIComponent(`http://${ip}/info.json`)}`);
-                if (!infoRes.ok) throw new Error("Gagal mengambil data dari server. Pastikan IP valid atau server menyala.");
-                infoNode = await infoRes.json();
-
-                const playersRes = await fetch(`${proxyUrl}${encodeURIComponent(`http://${ip}/players.json`)}`);
-                if (!playersRes.ok) throw new Error("Gagal mengambil daftar pemain.");
-                playersData = await playersRes.json();
+                infoNode = await fetchWithFallback(`http://${ip}/info.json`);
+                playersData = await fetchWithFallback(`http://${ip}/players.json`);
 
                 sName.innerText = stripColors(infoNode.vars?.sv_projectName || infoNode.vars?.sv_hostname || 'Unknown Server');
                 sIpInfo.innerText = actualIp;

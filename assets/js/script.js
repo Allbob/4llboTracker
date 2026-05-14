@@ -53,6 +53,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const themeBtns = document.querySelectorAll('.theme-btn');
     const btnLightMode = document.getElementById('btnLightMode');
 
+    // New UI Element References
+    const btnCopyIp = document.getElementById('btnCopyIp');
+    const playerDetailModal = document.getElementById('playerDetailModal');
+    const closePlayerModal = document.getElementById('closePlayerModal');
+    const playerModalBody = document.getElementById('playerModalBody');
+    const toastContainer = document.getElementById('toastContainer');
+
     // Table Headers
     const sortableHeaders = document.querySelectorAll('.sortable');
 
@@ -121,7 +128,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (isCfx) {
                 const cfxCode = actualIp.split('cfx.re/join/')[1].split('/')[0];
-                const res = await fetch(`https://servers-frontend.fivem.net/api/servers/single/${cfxCode}`);
+                const proxyUrl = 'https://api.allorigins.win/raw?url=';
+                const res = await fetch(`${proxyUrl}${encodeURIComponent(`https://servers-frontend.fivem.net/api/servers/single/${cfxCode}`)}`);
                 if (!res.ok) throw new Error();
                 const data = await res.json();
                 const info = data.Data;
@@ -319,6 +327,50 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log("Audio not supported or blocked");
         }
     };
+    
+    // --- Toast Notification System --- //
+    const showToast = (message, icon = 'fa-circle-check') => {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.innerHTML = `
+            <i class="fa-solid ${icon}"></i>
+            <span>${message}</span>
+        `;
+        toastContainer.appendChild(toast);
+        
+        // Auto remove
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-20px)';
+            toast.style.transition = 'all 0.4s ease';
+            setTimeout(() => toast.remove(), 400);
+        }, 3000);
+    };
+
+    const copyToClipboard = async (text) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            showToast("Berhasil disalin!", "fa-clipboard-check");
+        } catch (err) {
+            console.error('Gagal menyalin:', err);
+            // Fallback for non-HTTPS or older browsers
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showToast("Berhasil disalin!");
+            } catch (e) {
+                showToast("Gagal menyalin", "fa-circle-xmark");
+            }
+            document.body.removeChild(textArea);
+        }
+    };
+
+    btnCopyIp.addEventListener('click', () => {
+        if (currentServerIp) copyToClipboard(currentServerIp);
+    });
 
     const showError = (msg) => {
         stopAutoRefresh();
@@ -329,11 +381,31 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingState.classList.add('hidden');
     };
 
+    const showSkeleton = () => {
+        playerTableBody.innerHTML = '';
+        emptyPlayers.classList.add('hidden');
+        document.querySelector('.custom-table').classList.remove('hidden');
+        paginationBar.classList.add('hidden');
+        
+        for (let i = 0; i < 5; i++) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><div class="skeleton" style="height:24px; width:40px;"></div></td>
+                <td><div class="skeleton" style="height:24px; width:180px;"></div></td>
+                <td><div class="skeleton" style="height:24px; width:60px;"></div></td>
+                <td><div class="skeleton" style="height:24px; width:100px;"></div></td>
+            `;
+            playerTableBody.appendChild(tr);
+        }
+    };
+
     const clearStates = () => {
         errorMsg.classList.add('hidden');
         sDashboard.classList.add('hidden');
         playerSection.classList.add('hidden');
         loadingState.classList.remove('hidden');
+        showSkeleton();
+        playerSection.classList.remove('hidden'); // Show table with skeletons
     };
 
     const fetchServerData = async (isSilent = false) => {
@@ -358,7 +430,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (cfxCode) {
                 actualIp = `cfx.re/join/${cfxCode}`;
-                const cfxRes = await fetch(`https://servers-frontend.fivem.net/api/servers/single/${cfxCode}`);
+                const proxyUrl = 'https://api.allorigins.win/raw?url=';
+                const cfxRes = await fetch(`${proxyUrl}${encodeURIComponent(`https://servers-frontend.fivem.net/api/servers/single/${cfxCode}`)}`);
                 if (!cfxRes.ok) throw new Error("Gagal mengambil data dari CFX. Pastikan link server valid.");
 
                 const cfxData = await cfxRes.json();
@@ -503,6 +576,58 @@ document.addEventListener('DOMContentLoaded', () => {
         return icons || '<i class="fa-solid fa-desktop" title="PC"></i>';
     };
 
+    const showPlayerDetail = (player) => {
+        playerModalBody.innerHTML = '';
+        
+        const header = document.createElement('div');
+        header.style.marginBottom = '20px';
+        header.style.textAlign = 'center';
+        header.innerHTML = `
+            <div style="font-size: 3rem; color: var(--primary); margin-bottom: 10px;">
+                <i class="fa-solid fa-circle-user"></i>
+            </div>
+            <h2 style="color: #fff; margin-bottom: 5px;">${stripColors(player.name)}</h2>
+            <div class="badge status-online" style="display: inline-flex; margin: 0 auto;">ID: ${player.id} | Ping: ${player.ping}ms</div>
+        `;
+        playerModalBody.appendChild(header);
+
+        const idContainer = document.createElement('div');
+        idContainer.className = 'identifiers-list';
+        
+        if (player.identifiers && player.identifiers.length > 0) {
+            player.identifiers.forEach(id => {
+                const parts = id.split(':');
+                const type = parts[0];
+                const val = parts[1] || id;
+
+                const badge = document.createElement('div');
+                badge.className = 'identifier-badge';
+                badge.innerHTML = `
+                    <span class="identifier-label">${type}</span>
+                    <span class="identifier-value">${val}</span>
+                `;
+                badge.style.cursor = 'pointer';
+                badge.title = 'Klik untuk menyalin';
+                badge.addEventListener('click', () => copyToClipboard(id));
+                idContainer.appendChild(badge);
+            });
+        } else {
+            idContainer.innerHTML = '<p style="text-align:center; color:var(--text-muted);">Tidak ada identifier ditemukan.</p>';
+        }
+        
+        playerModalBody.appendChild(idContainer);
+        playerDetailModal.classList.remove('hidden');
+    };
+
+    closePlayerModal.addEventListener('click', () => {
+        playerDetailModal.classList.add('hidden');
+    });
+
+    // Close on outside click
+    window.addEventListener('click', (e) => {
+        if (e.target === playerDetailModal) playerDetailModal.classList.add('hidden');
+    });
+
 
     const renderPlayersPage = (players) => {
         playerTableBody.innerHTML = '';
@@ -540,6 +665,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         toRender.forEach(p => {
             const tr = document.createElement('tr');
+            tr.className = 'player-row';
             const safeName = stripColors(p.name).replace(/</g, "&lt;").replace(/>/g, "&gt;");
             tr.innerHTML = `
                 <td><span class="id-badge">#${p.id}</span></td>
@@ -547,6 +673,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td class="ping-badge ${getPingColorClass(p.ping)}">${p.ping} ms</td>
                 <td>${getPlatformIcon(p.identifiers)}</td>
             `;
+            tr.addEventListener('click', () => showPlayerDetail(p));
             playerTableBody.appendChild(tr);
         });
     };

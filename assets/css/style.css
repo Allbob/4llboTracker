@@ -1496,3 +1496,114 @@ th.sortable[data-order="desc"] i {
         padding: 0.5rem 0.7rem;
     }
 }
+
+/* ============================================
+   NEW FEATURES & UTILITIES
+   ============================================ */
+
+.action-icon {
+    transition: all 0.2s ease;
+}
+.action-icon:hover {
+    color: var(--primary);
+    transform: scale(1.2);
+    opacity: 1 !important;
+}
+
+.toast-container {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.toast {
+    background: rgba(5, 5, 5, 0.95);
+    border-left: 4px solid var(--primary);
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    animation: toastIn 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 200px;
+}
+
+[data-theme="light"] .toast {
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+}
+
+@keyframes toastIn {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.player-row {
+    cursor: pointer;
+}
+
+.identifier-badge {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(22, 163, 74, 0.15);
+    padding: 10px 14px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    transition: all 0.2s;
+}
+
+.identifier-badge:hover {
+    background: rgba(22, 163, 74, 0.05);
+    border-color: var(--primary);
+}
+
+[data-theme="light"] .identifier-badge {
+    background: #f8fafc;
+    border-color: rgba(22, 163, 74, 0.15);
+}
+
+.identifier-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 800;
+}
+
+.identifier-value {
+    font-size: 0.85rem;
+    font-family: var(--font-mono);
+    color: var(--text-main);
+    word-break: break-all;
+}
+
+/* Skeleton Loading */
+.skeleton {
+    background: linear-gradient(90deg, 
+        rgba(22, 163, 74, 0.05) 25%, 
+        rgba(22, 163, 74, 0.12) 50%, 
+        rgba(22, 163, 74, 0.05) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 4px;
+    color: transparent !important;
+    user-select: none;
+}
+
+@keyframes skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}

@@ -66,7 +66,10 @@
                     <h2><span id="sName">Server Name</span> <i id="btnFavorite" class="fa-regular fa-star action-icon"
                             title="Tambah ke Favorit"></i> <i id="btnInfo"
                             class="fa-solid fa-circle-info action-icon hidden" title="Detail Server"></i></h2>
-                    <p class="s-ip" id="sIp">127.0.0.1:30120</p>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <p class="s-ip" id="sIp">127.0.0.1:30120</p>
+                        <i id="btnCopyIp" class="fa-solid fa-copy action-icon" title="Salin IP" style="font-size: 0.8rem; opacity: 0.7; cursor: pointer;"></i>
+                    </div>
                     <div class="server-tags hidden" id="serverTags"></div>
                 </div>
                 <div class="dashboard-actions">
@@ -240,6 +243,22 @@
             </div>
         </div>
     </div>
+
+    <!-- Modal Detail Pemain -->
+    <div id="playerDetailModal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel" style="max-width: 450px;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-user-tag"></i> Detail Pemain</h3>
+                <i class="fa-solid fa-xmark close-modal" id="closePlayerModal"></i>
+            </div>
+            <div class="modal-body" id="playerModalBody" style="padding-top: 5px;">
+                <!-- Content injected by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toastContainer" class="toast-container"></div>
 
     <!-- Aesthetic Background Elements -->
     <div class="blob blob-1"></div>

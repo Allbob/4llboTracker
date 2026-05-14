@@ -400,10 +400,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Multi-Proxy Fallback System --- //
     const PROXIES = [
-        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        // Proxy utama: Vercel Function milik sendiri (paling stabil)
+        (url) => `/api/proxy?url=${encodeURIComponent(url)}`,
+        // Cadangan 1
         (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        // Cadangan 2
+        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        // Cadangan 3
         (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-        (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
     ];
 
     const fetchWithFallback = async (url) => {

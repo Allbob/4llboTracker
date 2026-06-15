@@ -460,18 +460,26 @@ document.addEventListener('DOMContentLoaded', () => {
             let infoNode = null;
 
             if (cfxCode) {
-                actualIp = `cfx.re/join/${cfxCode}`;
-                const cfxData = await fetchWithFallback(`https://servers-frontend.fivem.net/api/servers/single/${cfxCode}`);
-                if (!cfxData.Data) throw new Error("Server tidak ditemukan. Pastikan kode CFX valid.");
+                // Fetch resolve via proxy
+                const resolveRes = await fetch(`/api/proxy?url=https://cfx.re/join/${cfxCode}`);
+                if (!resolveRes.ok) {
+                    throw new Error("Server tidak ditemukan. Pastikan kode CFX valid, atau server mungkin offline.");
+                }
+                const resolveData = await resolveRes.json();
+                if (!resolveData.resolvedIp) {
+                    throw new Error("Gagal meresolve IP dari kode CFX.");
+                }
+                ip = resolveData.resolvedIp;
+                actualIp = ip; // Boleh simpan IP-nya saja
+                
+                infoNode = await fetchWithFallback(`http://${ip}/info.json`);
+                playersData = await fetchWithFallback(`http://${ip}/players.json`);
 
-                infoNode = cfxData.Data;
-                playersData = infoNode.players || [];
-
-                sName.innerText = stripColors(infoNode.hostname || infoNode.vars?.sv_projectName || 'Unknown Server');
-                sIpInfo.innerText = actualIp;
-                sOnline.innerText = infoNode.clients !== undefined ? infoNode.clients : playersData.length;
-                sMax.innerText = infoNode.sv_maxclients || infoNode.vars?.sv_maxClients || '32';
-                sGameType.innerText = infoNode.gametype || infoNode.vars?.gametype || 'Freeroam/Roleplay';
+                sName.innerText = stripColors(infoNode.vars?.sv_projectName || infoNode.vars?.sv_hostname || 'Unknown Server');
+                sIpInfo.innerText = `cfx.re/join/${cfxCode} (${ip})`;
+                sOnline.innerText = playersData.length;
+                sMax.innerText = infoNode.vars?.sv_maxClients || '32';
+                sGameType.innerText = infoNode.vars?.gametype || 'Freeroam/Roleplay';
 
             } else {
                 if (!ip.includes(':')) ip += ':30120';

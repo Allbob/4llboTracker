@@ -36,6 +36,26 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'Domain tidak diizinkan.' });
     }
 
+    // Handle CFX Resolve
+    if (targetUrl.hostname === 'cfx.re' && targetUrl.pathname.startsWith('/join/')) {
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0'
+                }
+            });
+            const citizenUrl = response.headers.get('x-citizenfx-url');
+            if (citizenUrl) {
+                let ip = citizenUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+                return res.status(200).json({ resolvedIp: ip });
+            } else {
+                return res.status(404).json({ error: 'Kode CFX tidak ditemukan atau server offline.' });
+            }
+        } catch (error) {
+            return res.status(500).json({ error: 'Gagal meresolve CFX.' });
+        }
+    }
+
     try {
         const response = await fetch(url, {
             headers: {

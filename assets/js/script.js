@@ -400,13 +400,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Multi-Proxy Fallback System --- //
     const PROXIES = [
-        // Proxy utama: Vercel Function milik sendiri (paling stabil)
+        // Prioritas 1: Direct Fetch (Tanpa Proxy). Memanfaatkan IP asli user untuk tembus Anti-DDoS server Indonesia
+        (url) => url,
+        // Cadangan 1: Vercel Function milik sendiri (paling stabil)
         (url) => `/api/proxy?url=${encodeURIComponent(url)}`,
-        // Cadangan 1
-        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
         // Cadangan 2
-        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
         // Cadangan 3
+        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        // Cadangan 4
         (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
     ];
 

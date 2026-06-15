@@ -416,7 +416,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const proxyUrl = proxyBuilder(url);
                 const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 8000);
+                const timeout = setTimeout(() => controller.abort(), 25000);
                 const res = await fetch(proxyUrl, { signal: controller.signal });
                 clearTimeout(timeout);
                 if (!res.ok) {

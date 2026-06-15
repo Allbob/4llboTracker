@@ -1,6 +1,8 @@
 // Vercel Serverless Function - Custom Proxy
 // Dipanggil dari frontend sebagai: /api/proxy?url=https://...
 
+export const maxDuration = 60; // Max 60 detik untuk server lambat
+
 export default async function handler(req, res) {
     // Allow CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -50,7 +52,7 @@ export default async function handler(req, res) {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'application/json, text/plain, */*',
             },
-            signal: AbortSignal.timeout(10000), // 10 detik timeout
+            signal: AbortSignal.timeout(25000), // 25 detik timeout
         });
 
         if (!response.ok) {

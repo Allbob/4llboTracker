@@ -17,23 +17,11 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Parameter URL diperlukan.' });
     }
 
-    // Hanya izinkan domain FiveM untuk keamanan
-    const allowedDomains = [
-        'servers-frontend.fivem.net',
-        'cfx.re',
-    ];
-
     let targetUrl;
     try {
         targetUrl = new URL(url);
     } catch (e) {
         return res.status(400).json({ error: 'URL tidak valid.' });
-    }
-
-    const isAllowed = allowedDomains.some(domain => targetUrl.hostname.includes(domain));
-
-    if (!isAllowed) {
-        return res.status(403).json({ error: 'Domain tidak diizinkan.' });
     }
 
     // Handle CFX Resolve

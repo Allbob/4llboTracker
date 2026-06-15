@@ -419,11 +419,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 const timeout = setTimeout(() => controller.abort(), 8000);
                 const res = await fetch(proxyUrl, { signal: controller.signal });
                 clearTimeout(timeout);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                if (!res.ok) {
+                    if (res.status === 404) {
+                        throw new Error("Server tidak ditemukan. Pastikan IP atau kode CFX valid, atau server mungkin offline.");
+                    }
+                    throw new Error(`HTTP ${res.status}`);
+                }
                 const text = await res.text();
                 // Validate it's actual JSON
                 return JSON.parse(text);
             } catch (e) {
+                if (e.message && e.message.includes("Server tidak ditemukan")) {
+                    throw e;
+                }
                 lastError = e;
                 console.warn(`Proxy gagal, mencoba selanjutnya...`, e.message);
             }

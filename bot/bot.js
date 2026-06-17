@@ -553,7 +553,7 @@ const checkLicenses = async () => {
     }
 
     if (changed) {
-        saveConfig();
+        await saveConfig();
     }
 };
 
@@ -1041,8 +1041,8 @@ const publicCommands = [
         )
         .addIntegerOption(opt =>
             opt.setName('durasi')
-                .setDescription('Pilih durasi sewa yang dibayar')
-                .setRequired(false)
+                .setDescription('Pilih paket sewa sesuai nominal yang Anda transfer')
+                .setRequired(true)
                 .addChoices(
                     { name: '30 Hari - Rp 20.000', value: 30 },
                     { name: '90 Hari - Rp 50.000', value: 90 },
@@ -1315,6 +1315,20 @@ const createQRISInvoiceInteraction = async (target, duration, isButton = false) 
     const txId = 'TX' + Date.now().toString().slice(-6) + Math.floor(Math.random() * 90 + 10);
     const userId = isMessage ? target.author.id : target.user.id;
 
+    // Cek keberadaan file QRIS secara dinamis (support .png, .jpg, .jpeg)
+    let qrisFileObj = null;
+    for (const ext of ['png', 'jpg', 'jpeg']) {
+        const tempPath = path.join(__dirname, `qris.${ext}`);
+        if (fs.existsSync(tempPath)) {
+            qrisFileObj = { path: tempPath, name: `qris.${ext}` };
+            break;
+        }
+    }
+    if (!qrisFileObj) {
+        const errMsg = { content: '❌ File QRIS tidak ditemukan. Silakan hubungi Admin bot.', ephemeral: true };
+        return isMessage ? target.reply(errMsg) : target.reply(errMsg);
+    }
+
     // Simpan ke pending_payments
     try {
         await pool.query(
@@ -1327,7 +1341,7 @@ const createQRISInvoiceInteraction = async (target, duration, isButton = false) 
         return isMessage ? target.reply(errMsg) : target.reply(errMsg);
     }
 
-    const qrisFile = new AttachmentBuilder(path.join(__dirname, 'qris.png'), { name: 'qris.png' });
+    const qrisFile = new AttachmentBuilder(qrisFileObj.path, { name: qrisFileObj.name });
 
     const embed = new EmbedBuilder()
         .setColor(0x5865F2)
@@ -1347,7 +1361,7 @@ const createQRISInvoiceInteraction = async (target, duration, isButton = false) 
 ` +
             `📌 Scan QRIS di bawah → Transfer **Rp ${price.toLocaleString('id-ID')}** → Klik **\"Saya Sudah Transfer\"**.`
         )
-        .setImage('attachment://qris.png')
+        .setImage(`attachment://${qrisFileObj.name}`)
         .setFooter({ text: '4llboTracker • Konfirmasi akan diverifikasi oleh Owner' })
         .setTimestamp();
 
@@ -2216,7 +2230,7 @@ client.on('interactionCreate', async (interaction) => {
     else if (commandName === 'bayar') {
         const guildId = interaction.guildId;
         const attachment = interaction.options.getAttachment('bukti');
-        const duration = interaction.options.getInteger('durasi') || 30;
+        const duration = interaction.options.getInteger('durasi');
 
         if (!attachment || !attachment.contentType || !attachment.contentType.startsWith('image/')) {
             return interaction.reply({ content: '❌ **Bukti Invalid!** Harap unggah file berupa foto/screenshot bukti transfer pembayaran QRIS.', ephemeral: true });
@@ -2693,7 +2707,7 @@ client.on('interactionCreate', async (interaction) => {
 
     // Handle Manual Approval & Rejection
     if (customId.startsWith('btn_app_man_')) {
-        if (interaction.user.id !== OWNER_ID) {
+        if (!isOwner(interaction.user.id)) {
             return interaction.reply({ content: '❌ Anda bukan pemilik bot!', ephemeral: true });
         }
 
@@ -2804,7 +2818,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (customId.startsWith('btn_rej_man_')) {
-        if (interaction.user.id !== OWNER_ID) {
+        if (!isOwner(interaction.user.id)) {
             return interaction.reply({ content: '❌ Anda bukan pemilik bot!', ephemeral: true });
         }
 
@@ -3452,9 +3466,14 @@ client.on('messageCreate', async (message) => {
         // Generate ID Transaksi Manual Unik
         const txId = 'MAN_' + Math.floor(100000 + Math.random() * 900000);
 
-        const durationRaw = args[0] || '30';
+        const durationRaw = args[0];
+        if (!durationRaw) {
+            return message.reply('❌ **Durasi Diperlukan!**\nFormat: `!bayar [durasi]` sambil melampirkan foto bukti transfer.\nPilihan: `30` (Rp 20.000) • `90` (Rp 50.000) • `365` (Rp 180.000)\n*Contoh: `!bayar 30`*');
+        }
         let duration = parseInt(durationRaw);
-        if (![30, 90, 365].includes(duration)) duration = 30;
+        if (![30, 90, 365].includes(duration)) {
+            return message.reply('❌ **Durasi Tidak Valid!**\nPilihan yang tersedia: `30` (Rp 20.000) • `90` (Rp 50.000) • `365` (Rp 180.000)\n*Contoh: `!bayar 90`*');
+        }
 
         let amount = 20000;
         if (duration === 90) amount = 50000;
@@ -3505,8 +3524,8 @@ client.on('messageCreate', async (message) => {
                         .setDescription(
                             `Bukti transfer Anda telah berhasil dikirim ke Admin/Developer untuk verifikasi manual.\n\n` +
                             `• **Server**: **${message.guild?.name || 'Unknown'}** (\`${guildId}\`)\n` +
-                            `• **Durasi**: \`30 Hari\`\n` +
-                            `• **Tarif**: \`Rp 20.000\`\n` +
+                            `• **Durasi**: \`${duration} Hari\`\n` +
+                            `• **Tarif**: \`Rp ${amount.toLocaleString('id-ID')}\`\n` +
                             `• **Status**: \`MENUNGGU PERSETUJUAN\`\n\n` +
                             `*Anda akan menerima pesan DM secara otomatis setelah Admin menyetujui pembayaran ini. Terima kasih atas kesabaran Anda.*`
                         )

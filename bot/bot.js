@@ -623,58 +623,7 @@ const getPingColor = (ping) => {
     return '🔴';
 };
 
-// ==========================================
-//  ANIMASI LOADING SYSTEM
-// ==========================================
-const SPINNER_FRAMES = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
-const LOADING_BARS = [
-    '▱▱▱▱▱▱▱▱▱▱',
-    '▰▱▱▱▱▱▱▱▱▱',
-    '▰▰▱▱▱▱▱▱▱▱',
-    '▰▰▰▱▱▱▱▱▱▱',
-    '▰▰▰▰▱▱▱▱▱▱',
-    '▰▰▰▰▰▱▱▱▱▱',
-    '▰▰▰▰▰▰▱▱▱▱',
-    '▰▰▰▰▰▰▰▱▱▱',
-    '▰▰▰▰▰▰▰▰▱▱',
-    '▰▰▰▰▰▰▰▰▰▱',
-    '▰▰▰▰▰▰▰▰▰▰',
-];
 
-/**
- * Jalankan animasi spinner di sebuah message/reply Discord.
- * @param {Object} target - Objek dengan method .edit()
- * @param {Function} buildEmbed - (frame, bar, step) => EmbedBuilder
- * @param {number} steps - Jumlah frame animasi (default 8)
- * @param {number} delay - Delay antar frame dalam ms (default 400)
- * @returns {Promise<void>}
- */
-const runLoadingAnimation = async (target, buildEmbed, steps = 10, delay = 350) => {
-    for (let i = 0; i < steps; i++) {
-        const spinChar = SPINNER_FRAMES[i % SPINNER_FRAMES.length];
-        const bar = LOADING_BARS[Math.min(i, LOADING_BARS.length - 1)];
-        try {
-            await target.edit({ embeds: [buildEmbed(spinChar, bar, i)], components: [] });
-        } catch (_) { break; }
-        await new Promise(r => setTimeout(r, delay));
-    }
-};
-
-/**
- * Animasi dots sederhana untuk prefix command (!command) — edit pesan beberapa kali.
- * @param {Object} msg - Discord message object dengan .edit()
- * @param {string} baseText - Teks dasar sebelum dots
- * @param {number} cycles - Berapa kali ulang animasi
- */
-const runDotAnimation = async (msg, baseText, cycles = 4) => {
-    const dotStates = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-    for (let i = 0; i < cycles * dotStates.length; i++) {
-        try {
-            await msg.edit(`${dotStates[i % dotStates.length]} ${baseText}`);
-        } catch (_) { break; }
-        await new Promise(r => setTimeout(r, 120));
-    }
-};
 
 // Daftar server yang di-monitor (disimpan di memori, bisa kamu ganti ke database)
 const monitoredServers = new Map(); // key: ip, value: { lastStatus, name, lastPlayerCount }

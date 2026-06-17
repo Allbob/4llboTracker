@@ -1288,7 +1288,7 @@ client.on('guildCreate', async (guild) => {
 });
 
 /**
- * Helper untuk membuat tagihan / invoice QRIS dinamis
+ * Helper untuk membuat tagihan QRIS — Alur simpel: tampil QRIS → konfirmasi transfer → Owner approve
  */
 const createQRISInvoiceInteraction = async (target, duration, isButton = false) => {
     const isMessage = !target.editReply;
@@ -1298,78 +1298,54 @@ const createQRISInvoiceInteraction = async (target, duration, isButton = false) 
         return isMessage ? target.reply(msg) : target.reply(msg);
     }
 
-    let basePrice = 20000;
-    if (duration === 90) basePrice = 50000;
-    if (duration === 365) basePrice = 180000;
-
-    let responseMsg;
-    if (isMessage) {
-        responseMsg = await target.reply('⏳ Sedang membuat tagihan QRIS...');
-    } else {
-        if (!target.deferred && !target.replied) {
-            await target.deferReply({ ephemeral: isButton });
-        }
-    }
-
-    // Cari nominal unik yang belum dipakai
-    let amount = basePrice;
-    let isUnique = false;
-    let attempts = 0;
-    
-    try {
-        while (!isUnique && attempts < 50) {
-            const suffix = Math.floor(Math.random() * 999) + 1; // 1-999
-            amount = basePrice + suffix;
-            const [rows] = await pool.query('SELECT amount FROM pending_payments WHERE amount = ? AND status = "PENDING"', [amount]);
-            if (rows.length === 0) {
-                isUnique = true;
-            }
-            attempts++;
-        }
-    } catch (err) {
-        console.error('Gagal memeriksa nominal unik di database:', err.message);
-        const errPayload = { content: '❌ Terjadi kesalahan koneksi database saat membuat tagihan. Silakan coba lagi.' };
-        return isMessage ? (responseMsg ? responseMsg.edit(errPayload) : target.reply(errPayload)) : target.editReply(errPayload);
-    }
+    let price = 20000;
+    if (duration === 90) price = 50000;
+    if (duration === 365) price = 180000;
 
     const txId = 'TX' + Date.now().toString().slice(-6) + Math.floor(Math.random() * 90 + 10);
+    const userId = isMessage ? target.author.id : target.user.id;
 
-    // Simpan transaksi
+    // Simpan ke pending_payments
     try {
         await pool.query(
             'INSERT INTO pending_payments (txId, serverId, userId, amount, duration, status) VALUES (?, ?, ?, ?, ?, "PENDING")',
-            [txId, guildId, isMessage ? target.author.id : target.user.id, amount, duration]
+            [txId, guildId, userId, price, duration]
         );
     } catch (err) {
         console.error('Gagal menyimpan pending payment:', err.message);
-        const errPayload = { content: '❌ Terjadi kesalahan internal saat membuat tagihan. Silakan coba lagi.' };
-        return isMessage ? responseMsg.edit(errPayload) : target.editReply(errPayload);
+        const errMsg = { content: '❌ Terjadi kesalahan database. Silakan coba lagi.', ephemeral: true };
+        return isMessage ? target.reply(errMsg) : target.reply(errMsg);
     }
 
-    // Buat Invoice QRIS Canvas
-    const { generateQRISInvoice } = require('./utils/qrisCanvas');
-    const invoiceBuffer = await generateQRISInvoice(amount, txId, duration, target.guild.name);
-    const { AttachmentBuilder } = require('discord.js');
-    const file = new AttachmentBuilder(invoiceBuffer, { name: `invoice_${txId}.png` });
+    const qrisFile = new AttachmentBuilder(path.join(__dirname, 'qris.png'), { name: 'qris.png' });
 
     const embed = new EmbedBuilder()
         .setColor(0x5865F2)
-        .setTitle('🧾 TAGIHAN PEMBAYARAN LISENSI')
-        .setDescription(`Silakan pindai kode QRIS di bawah ini untuk mengaktifkan **4llboTracker Premium** di server **${target.guild.name}**.\n\n` +
-            `• **ID Transaksi**: \`${txId}\`\n` +
-            `• **Durasi Sewa**: \`${duration} Hari\`\n` +
-            `• **Nominal Unik**: **Rp ${amount.toLocaleString('id-ID')}**\n\n` +
-            `⚠️ **PENTING:** Anda harus mentransfer jumlah yang **SAMA PERSIS** hingga 3 digit terakhir. Nominal unik ini digunakan untuk verifikasi otomatis oleh sistem.`)
-        .setImage(`attachment://invoice_${txId}.png`)
-        .setFooter({ text: 'Tagihan berlaku selama 15 menit • 4llboTracker' })
+        .setTitle('💳 Tagihan Sewa 4llboTracker')
+        .setDescription(
+            `Halo <@${userId}>! Berikut tagihan sewa bot untuk **${target.guild.name}**.
+
+` +
+            `**📋 Detail:**
+` +
+            `> 🪪 ID Transaksi: \`${txId}\`
+` +
+            `> ⏳ Durasi: **${duration} Hari**
+` +
+            `> 💰 Nominal: **Rp ${price.toLocaleString('id-ID')}**
+
+` +
+            `📌 Scan QRIS di bawah → Transfer **Rp ${price.toLocaleString('id-ID')}** → Klik **\"Saya Sudah Transfer\"**.`
+        )
+        .setImage('attachment://qris.png')
+        .setFooter({ text: '4llboTracker • Konfirmasi akan diverifikasi oleh Owner' })
         .setTimestamp();
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setCustomId(`pay_status_${txId}`)
-            .setLabel('Cek Status Pembayaran')
-            .setEmoji('🔄')
-            .setStyle(ButtonStyle.Primary),
+            .setCustomId(`konfirmasi_bayar_${txId}`)
+            .setLabel('✅ Saya Sudah Transfer')
+            .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
             .setCustomId(`pay_cancel_${txId}`)
             .setLabel('Batalkan')
@@ -1377,24 +1353,17 @@ const createQRISInvoiceInteraction = async (target, duration, isButton = false) 
             .setStyle(ButtonStyle.Danger)
     );
 
-    const successPayload = { content: null, embeds: [embed], files: [file], components: [row] };
+    const payload = { content: null, embeds: [embed], files: [qrisFile], components: [row] };
     if (isMessage) {
-        await responseMsg.edit(successPayload);
+        await target.reply(payload);
     } else {
-        await target.editReply(successPayload);
+        if (!target.deferred && !target.replied) {
+            await target.deferReply({ ephemeral: isButton });
+        }
+        await target.editReply(payload);
     }
-    
-    // Hapus tagihan otomatis setelah 15 menit jika belum dibayar
-    setTimeout(async () => {
-        try {
-            const [rows] = await pool.query('SELECT status FROM pending_payments WHERE txId = ?', [txId]);
-            if (rows.length > 0 && rows[0].status === 'PENDING') {
-                await pool.query('DELETE FROM pending_payments WHERE txId = ?', [txId]);
-                console.log(`[BILLING] Tagihan expired: ${txId}`);
-            }
-        } catch (err) { }
-    }, 15 * 60 * 1000);
 };
+
 
 // ==========================================
 //  HANDLER SLASH COMMANDS
@@ -2392,6 +2361,81 @@ client.on('interactionCreate', async (interaction) => {
             } catch (e) {
                 return interaction.reply({ content: `❌ Gagal mengirim pesan ke owner server: ${e.message}`, ephemeral: true });
             }
+        } else if (interaction.customId.startsWith('modal_konfirmasi_')) {
+            const txId = interaction.customId.replace('modal_konfirmasi_', '');
+            const nominalRaw = interaction.fields.getTextInputValue('input_nominal').trim();
+            const pengirim = interaction.fields.getTextInputValue('input_pengirim').trim();
+            const nominalNum = parseInt(nominalRaw.replace(/\D/g, '')) || 0;
+
+            await interaction.deferReply({ ephemeral: true });
+
+            try {
+                const [txRows] = await pool.query(
+                    'SELECT * FROM pending_payments WHERE txId = ? AND status = "PENDING"',
+                    [txId]
+                );
+                if (txRows.length === 0) {
+                    return interaction.editReply({ content: '❌ Transaksi tidak ditemukan atau sudah diproses.' });
+                }
+                const tx = txRows[0];
+
+                // Update status jadi WAITING_APPROVAL
+                await pool.query('UPDATE pending_payments SET status = "WAITING_APPROVAL" WHERE txId = ?', [txId]);
+
+                // Kirim notifikasi ke DM Owner
+                const ownerUser = await client.users.fetch(OWNER_ID).catch(() => null);
+                if (ownerUser) {
+                    const guild = client.guilds.cache.get(tx.serverId);
+                    const approveEmbed = new EmbedBuilder()
+                        .setColor(0xf59e0b)
+                        .setTitle('🔔 Konfirmasi Transfer Masuk!')
+                        .setDescription(`User <@${tx.userId}> mengklaim sudah transfer untuk server **${guild ? guild.name : tx.serverId}**.`)
+                        .addFields(
+                            { name: '🪪 ID Transaksi', value: `\`${txId}\``, inline: true },
+                            { name: '⏳ Durasi', value: `${tx.duration} Hari`, inline: true },
+                            { name: '💰 Tagihan', value: `Rp ${(tx.amount || 0).toLocaleString('id-ID')}`, inline: true },
+                            { name: '💸 Nominal Diklaim', value: `Rp ${nominalNum.toLocaleString('id-ID')}`, inline: true },
+                            { name: '🏦 Pengirim', value: pengirim, inline: true },
+                            { name: '🖥️ Server ID', value: `\`${tx.serverId}\``, inline: false }
+                        )
+                        .setFooter({ text: 'Cek mutasi rekening Anda sebelum approve!' })
+                        .setTimestamp();
+
+                    const approveRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`btn_app_man_${txId}`)
+                            .setLabel('✅ Setujui (Approve)')
+                            .setStyle(ButtonStyle.Success),
+                        new ButtonBuilder()
+                            .setCustomId(`btn_rej_man_${txId}`)
+                            .setLabel('❌ Tolak (Reject)')
+                            .setStyle(ButtonStyle.Danger)
+                    );
+
+                    await ownerUser.send({ embeds: [approveEmbed], components: [approveRow] });
+                }
+
+                // Edit pesan invoice jadi status menunggu
+                try {
+                    await interaction.message.edit({
+                        embeds: [
+                            new EmbedBuilder()
+                                .setColor(0xf59e0b)
+                                .setTitle('⏳ Menunggu Verifikasi Owner')
+                                .setDescription(`Konfirmasi transfer Anda sudah diterima dan dikirim ke Owner untuk diverifikasi.\n\n> 🪪 ID: \`${txId}\`\n> 💸 Diklaim: **Rp ${nominalNum.toLocaleString('id-ID')}**\n> 🏦 Pengirim: **${pengirim}**\n\nHarap tunggu, Owner akan segera mengecek mutasi rekening.`)
+                                .setFooter({ text: '4llboTracker Billing' })
+                                .setTimestamp()
+                        ],
+                        files: [],
+                        components: []
+                    });
+                } catch (e) { }
+
+                return interaction.editReply({ content: '✅ Konfirmasi transfer berhasil dikirim ke Owner! Lisensi akan diaktifkan setelah Owner memverifikasi.' });
+            } catch (err) {
+                console.error('Gagal proses konfirmasi bayar:', err.message);
+                return interaction.editReply({ content: `❌ Terjadi kesalahan: ${err.message}` });
+            }
         } else if (interaction.customId === 'modal_genkey') {
             const durationRaw = interaction.fields.getTextInputValue('input_duration').trim();
             const priceRaw = interaction.fields.getTextInputValue('input_price').trim();
@@ -2625,8 +2669,7 @@ client.on('interactionCreate', async (interaction) => {
 
     const allowedGuilds = getAllowedGuilds();
     const isPaymentButton = interaction.customId.startsWith('order_duration_') || 
-                            interaction.customId.startsWith('pay_sim_') || 
-                            interaction.customId.startsWith('pay_status_') || 
+                            interaction.customId.startsWith('konfirmasi_bayar_') || 
                             interaction.customId.startsWith('pay_cancel_') ||
                             interaction.customId.startsWith('btn_app_man_') ||
                             interaction.customId.startsWith('btn_rej_man_');
@@ -2883,74 +2926,54 @@ client.on('interactionCreate', async (interaction) => {
         return createQRISInvoiceInteraction(interaction, duration, true);
     }
 
-    // Handle Simulation Payment (OWNER ONLY)
-    if (customId.startsWith('pay_sim_')) {
-        if (!isOwner(interaction.user.id)) {
-            return interaction.reply({ content: '❌ Tombol ini hanya bisa digunakan oleh owner bot untuk keperluan testing.', ephemeral: true });
+    // Handle Konfirmasi Bayar — tampilkan modal isi nominal & pengirim
+    if (customId.startsWith('konfirmasi_bayar_')) {
+        const txId = customId.replace('konfirmasi_bayar_', '');
+
+        try {
+            const [rows] = await pool.query(
+                'SELECT userId FROM pending_payments WHERE txId = ? AND status = "PENDING"',
+                [txId]
+            );
+            if (rows.length === 0) {
+                return interaction.reply({ content: '❌ Tagihan tidak ditemukan atau sudah diproses.', ephemeral: true });
+            }
+            if (rows[0].userId !== interaction.user.id && !isOwner(interaction.user.id)) {
+                return interaction.reply({ content: '❌ Hanya pembuat tagihan yang bisa mengkonfirmasi pembayaran ini.', ephemeral: true });
+            }
+        } catch (err) {
+            return interaction.reply({ content: '❌ Gagal mengecek transaksi. Coba lagi.', ephemeral: true });
         }
-        const parts = customId.split('_'); // pay_sim_TXxxxxxx_amount
-        const txId = parts[2];
-        const amount = parseInt(parts[3]) || 0;
-        
-        await interaction.reply({ content: '📱 **[SIMULASI]** Menghubungi payment gateway callback untuk verifikasi...', ephemeral: true });
-        
-        const result = await processPaymentNotification(txId, amount, 'simulation');
-        if (result.success) {
-            await interaction.followUp({ content: '✅ **[SIMULASI SUKSES]** Pembayaran berhasil terverifikasi. Lisensi server telah diaktifkan secara otomatis! 🎉', ephemeral: true });
-            
-            try {
-                const completedEmbed = new EmbedBuilder()
-                    .setColor(0x10b981)
-                    .setTitle('✅ PEMBAYARAN TELAH SELESAI')
-                    .setDescription(`Transaksi \`${txId}\` telah berhasil dibayar.\nLisensi server premium telah diaktifkan!`)
-                    .setTimestamp();
-                await interaction.message.edit({ embeds: [completedEmbed], files: [], components: [] });
-            } catch (err) { }
-        } else {
-            await interaction.followUp({ content: `❌ **[SIMULASI GAGAL]** ${result.error}`, ephemeral: true });
-        }
+
+        const { ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+        const modal = new ModalBuilder()
+            .setCustomId(`modal_konfirmasi_${txId}`)
+            .setTitle('Konfirmasi Pembayaran');
+
+        const nominalInput = new TextInputBuilder()
+            .setCustomId('input_nominal')
+            .setLabel('Nominal yang sudah ditransfer (Rp)')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Contoh: 20000')
+            .setRequired(true);
+
+        const pengirimInput = new TextInputBuilder()
+            .setCustomId('input_pengirim')
+            .setLabel('Nama pengirim / nama bank')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Contoh: BCA a.n. Budi Santoso')
+            .setRequired(true);
+
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(nominalInput),
+            new ActionRowBuilder().addComponents(pengirimInput)
+        );
+
+        await interaction.showModal(modal);
         return;
     }
 
-    // Handle Check Status Payment
-    if (customId.startsWith('pay_status_')) {
-        const txId = customId.replace('pay_status_', '');
-        await interaction.deferReply({ ephemeral: true });
-        
-        try {
-            const [rows] = await pool.query('SELECT status, userId FROM pending_payments WHERE txId = ?', [txId]);
-            if (rows.length === 0) {
-                // Transaksi sudah tidak ada di DB - mungkin sudah berhasil diproses
-                // Cek apakah user ini yang punya lisensi untuk guild ini
-                const lic = botConfig.licenses[interaction.guildId];
-                const isLicActive = lic && new Date(lic.expiresAt).getTime() > Date.now();
-                const isOwnerOfLic = lic && lic.ownerId === interaction.user.id;
-                if (isLicActive && isOwnerOfLic) {
-                    await interaction.editReply({ content: '✅ **Verifikasi Berhasil!** Lisensi server premium Anda aktif dan sudah terdaftar.' });
-                    try {
-                        const completedEmbed = new EmbedBuilder()
-                            .setColor(0x10b981)
-                            .setTitle('✅ PEMBAYARAN TELAH SELESAI')
-                            .setDescription(`Transaksi \`${txId}\` telah berhasil dibayar.\nLisensi server premium telah diaktifkan!`)
-                            .setTimestamp();
-                        await interaction.message.edit({ embeds: [completedEmbed], files: [], components: [] });
-                    } catch (err) { }
-                    return;
-                }
-                return interaction.editReply({ content: '❌ Transaksi tidak ditemukan. Mungkin telah kedaluwarsa atau dibatalkan.' });
-            }
 
-            const tx = rows[0];
-            if (tx.status === 'PAID') {
-                return interaction.editReply({ content: '✅ Pembayaran terverifikasi! Sistem sedang memproses lisensi Anda.' });
-            } else {
-                return interaction.editReply({ content: '⏳ **Menunggu Pembayaran.** Pastikan Anda telah men-scan QRIS dan mentransfer nominal yang **sama persis** hingga 3 digit terakhir.' });
-            }
-        } catch (err) {
-            console.error('Gagal mengecek status pembayaran:', err.message);
-            return interaction.editReply({ content: '❌ Gagal mengecek status. Coba beberapa saat lagi.' });
-        }
-    }
 
     // Handle Cancel Payment
     if (customId.startsWith('pay_cancel_')) {

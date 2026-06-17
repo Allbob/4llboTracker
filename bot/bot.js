@@ -1366,13 +1366,8 @@ const createQRISInvoiceInteraction = async (target, duration, isButton = false) 
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setCustomId(`pay_sim_${txId}_${amount}`)
-            .setLabel('Simulasi Bayar')
-            .setEmoji('📱')
-            .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
             .setCustomId(`pay_status_${txId}`)
-            .setLabel('Cek Status')
+            .setLabel('Cek Status Pembayaran')
             .setEmoji('🔄')
             .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
@@ -2888,8 +2883,11 @@ client.on('interactionCreate', async (interaction) => {
         return createQRISInvoiceInteraction(interaction, duration, true);
     }
 
-    // Handle Simulation Payment
+    // Handle Simulation Payment (OWNER ONLY)
     if (customId.startsWith('pay_sim_')) {
+        if (!isOwner(interaction.user.id)) {
+            return interaction.reply({ content: '❌ Tombol ini hanya bisa digunakan oleh owner bot untuk keperluan testing.', ephemeral: true });
+        }
         const parts = customId.split('_'); // pay_sim_TXxxxxxx_amount
         const txId = parts[2];
         const amount = parseInt(parts[3]) || 0;
@@ -2919,29 +2917,38 @@ client.on('interactionCreate', async (interaction) => {
         const txId = customId.replace('pay_status_', '');
         await interaction.deferReply({ ephemeral: true });
         
-        const [rows] = await pool.query('SELECT status FROM pending_payments WHERE txId = ?', [txId]);
-        if (rows.length === 0) {
-            const lic = botConfig.licenses[interaction.guildId];
-            if (lic && new Date(lic.expiresAt).getTime() > Date.now()) {
-                await interaction.editReply({ content: '✅ **Verifikasi Berhasil!** Lisensi server premium Anda aktif.' });
-                try {
-                    const completedEmbed = new EmbedBuilder()
-                        .setColor(0x10b981)
-                        .setTitle('✅ PEMBAYARAN TELAH SELESAI')
-                        .setDescription(`Transaksi \`${txId}\` telah berhasil dibayar.\nLisensi server premium telah diaktifkan!`)
-                        .setTimestamp();
-                    await interaction.message.edit({ embeds: [completedEmbed], files: [], components: [] });
-                } catch (err) { }
-                return;
+        try {
+            const [rows] = await pool.query('SELECT status, userId FROM pending_payments WHERE txId = ?', [txId]);
+            if (rows.length === 0) {
+                // Transaksi sudah tidak ada di DB - mungkin sudah berhasil diproses
+                // Cek apakah user ini yang punya lisensi untuk guild ini
+                const lic = botConfig.licenses[interaction.guildId];
+                const isLicActive = lic && new Date(lic.expiresAt).getTime() > Date.now();
+                const isOwnerOfLic = lic && lic.ownerId === interaction.user.id;
+                if (isLicActive && isOwnerOfLic) {
+                    await interaction.editReply({ content: '✅ **Verifikasi Berhasil!** Lisensi server premium Anda aktif dan sudah terdaftar.' });
+                    try {
+                        const completedEmbed = new EmbedBuilder()
+                            .setColor(0x10b981)
+                            .setTitle('✅ PEMBAYARAN TELAH SELESAI')
+                            .setDescription(`Transaksi \`${txId}\` telah berhasil dibayar.\nLisensi server premium telah diaktifkan!`)
+                            .setTimestamp();
+                        await interaction.message.edit({ embeds: [completedEmbed], files: [], components: [] });
+                    } catch (err) { }
+                    return;
+                }
+                return interaction.editReply({ content: '❌ Transaksi tidak ditemukan. Mungkin telah kedaluwarsa atau dibatalkan.' });
             }
-            return interaction.editReply({ content: '❌ Transaksi tidak ditemukan. Mungkin telah kedaluwarsa atau dibatalkan.' });
-        }
 
-        const tx = rows[0];
-        if (tx.status === 'PAID') {
-            return interaction.editReply({ content: '✅ Pembayaran terverifikasi! Sistem sedang memproses lisensi Anda.' });
-        } else {
-            return interaction.editReply({ content: '⏳ **Menunggu Pembayaran.** Pastikan Anda telah men-scan QRIS dan mentransfer nominal yang sama persis.' });
+            const tx = rows[0];
+            if (tx.status === 'PAID') {
+                return interaction.editReply({ content: '✅ Pembayaran terverifikasi! Sistem sedang memproses lisensi Anda.' });
+            } else {
+                return interaction.editReply({ content: '⏳ **Menunggu Pembayaran.** Pastikan Anda telah men-scan QRIS dan mentransfer nominal yang **sama persis** hingga 3 digit terakhir.' });
+            }
+        } catch (err) {
+            console.error('Gagal mengecek status pembayaran:', err.message);
+            return interaction.editReply({ content: '❌ Gagal mengecek status. Coba beberapa saat lagi.' });
         }
     }
 
@@ -2950,12 +2957,18 @@ client.on('interactionCreate', async (interaction) => {
         const txId = customId.replace('pay_cancel_', '');
         await interaction.deferReply({ ephemeral: true });
 
-        const [rows] = await pool.query('SELECT userId FROM pending_payments WHERE txId = ?', [txId]);
+        const [rows] = await pool.query('SELECT userId FROM pending_payments WHERE txId = ? AND status = "PENDING"', [txId]);
         if (rows.length === 0) {
-            return interaction.editReply({ content: '❌ Transaksi tidak ditemukan atau sudah diproses.' });
+            // Cek apakah sudah diproses/dibayar
+            const [paidRows] = await pool.query('SELECT status FROM pending_payments WHERE txId = ?', [txId]);
+            if (paidRows.length > 0 && paidRows[0].status === 'PAID') {
+                return interaction.editReply({ content: '⚠️ Transaksi ini sudah berhasil dibayar dan tidak bisa dibatalkan.' });
+            }
+            return interaction.editReply({ content: '❌ Transaksi tidak ditemukan atau sudah kedaluwarsa.' });
         }
 
-        if (rows[0].userId !== interaction.user.id) {
+        // Hanya pembuat tagihan atau owner yang bisa membatalkan
+        if (rows[0].userId !== interaction.user.id && !isOwner(interaction.user.id)) {
             return interaction.editReply({ content: '❌ Hanya orang yang membuat tagihan ini yang bisa membatalkannya.' });
         }
 

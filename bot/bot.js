@@ -1038,6 +1038,16 @@ const publicCommands = [
             opt.setName('bukti')
                 .setDescription('Unggah foto/screenshot bukti pembayaran QRIS')
                 .setRequired(true)
+        )
+        .addIntegerOption(opt =>
+            opt.setName('durasi')
+                .setDescription('Pilih durasi sewa yang dibayar')
+                .setRequired(false)
+                .addChoices(
+                    { name: '30 Hari - Rp 20.000', value: 30 },
+                    { name: '90 Hari - Rp 50.000', value: 90 },
+                    { name: '365 Hari - Rp 180.000', value: 365 }
+                )
         ),
 
     new SlashCommandBuilder()
@@ -2206,6 +2216,7 @@ client.on('interactionCreate', async (interaction) => {
     else if (commandName === 'bayar') {
         const guildId = interaction.guildId;
         const attachment = interaction.options.getAttachment('bukti');
+        const duration = interaction.options.getInteger('durasi') || 30;
 
         if (!attachment || !attachment.contentType || !attachment.contentType.startsWith('image/')) {
             return interaction.reply({ content: '❌ **Bukti Invalid!** Harap unggah file berupa foto/screenshot bukti transfer pembayaran QRIS.', ephemeral: true });
@@ -2218,11 +2229,15 @@ client.on('interactionCreate', async (interaction) => {
         // Generate ID Transaksi Manual Unik
         const txId = 'MAN_' + Math.floor(100000 + Math.random() * 900000);
 
+        let amount = 20000;
+        if (duration === 90) amount = 50000;
+        if (duration === 365) amount = 180000;
+
         try {
             // Simpan ke database pending_payments
             await pool.query(
                 'INSERT INTO pending_payments (txId, serverId, userId, amount, duration, status) VALUES (?, ?, ?, ?, ?, ?)',
-                [txId, guildId, interaction.user.id, 20000, 30, 'PENDING_MANUAL']
+                [txId, guildId, interaction.user.id, amount, duration, 'PENDING_MANUAL']
             );
 
             // Kirim Verifikasi ke Admin/Owner via DM dan Log Channel
@@ -2233,8 +2248,8 @@ client.on('interactionCreate', async (interaction) => {
                     `Ada unggahan bukti transfer manual baru dari server **${interaction.guild?.name || 'Unknown'}**.\n\n` +
                     `• **Server ID**: \`${guildId}\`\n` +
                     `• **Pengirim**: <@${interaction.user.id}> (\`${interaction.user.id}\`)\n` +
-                    `• **Durasi**: \`30 Hari\`\n` +
-                    `• **Tarif**: \`Rp 20.000\`\n` +
+                    `• **Durasi**: \`${duration} Hari\`\n` +
+                    `• **Tarif**: \`Rp ${amount.toLocaleString('id-ID')}\`\n` +
                     `• **Transaction ID**: \`${txId}\``
                 )
                 .setImage(attachment.url)
@@ -2360,81 +2375,6 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.reply({ content: `✅ Pesan berhasil terkirim ke DM Pemilik Server **${guild.name}** (@${owner.user.tag}).`, ephemeral: true });
             } catch (e) {
                 return interaction.reply({ content: `❌ Gagal mengirim pesan ke owner server: ${e.message}`, ephemeral: true });
-            }
-        } else if (interaction.customId.startsWith('modal_konfirmasi_')) {
-            const txId = interaction.customId.replace('modal_konfirmasi_', '');
-            const nominalRaw = interaction.fields.getTextInputValue('input_nominal').trim();
-            const pengirim = interaction.fields.getTextInputValue('input_pengirim').trim();
-            const nominalNum = parseInt(nominalRaw.replace(/\D/g, '')) || 0;
-
-            await interaction.deferReply({ ephemeral: true });
-
-            try {
-                const [txRows] = await pool.query(
-                    'SELECT * FROM pending_payments WHERE txId = ? AND status = "PENDING"',
-                    [txId]
-                );
-                if (txRows.length === 0) {
-                    return interaction.editReply({ content: '❌ Transaksi tidak ditemukan atau sudah diproses.' });
-                }
-                const tx = txRows[0];
-
-                // Update status jadi WAITING_APPROVAL
-                await pool.query('UPDATE pending_payments SET status = "WAITING_APPROVAL" WHERE txId = ?', [txId]);
-
-                // Kirim notifikasi ke DM Owner
-                const ownerUser = await client.users.fetch(OWNER_ID).catch(() => null);
-                if (ownerUser) {
-                    const guild = client.guilds.cache.get(tx.serverId);
-                    const approveEmbed = new EmbedBuilder()
-                        .setColor(0xf59e0b)
-                        .setTitle('🔔 Konfirmasi Transfer Masuk!')
-                        .setDescription(`User <@${tx.userId}> mengklaim sudah transfer untuk server **${guild ? guild.name : tx.serverId}**.`)
-                        .addFields(
-                            { name: '🪪 ID Transaksi', value: `\`${txId}\``, inline: true },
-                            { name: '⏳ Durasi', value: `${tx.duration} Hari`, inline: true },
-                            { name: '💰 Tagihan', value: `Rp ${(tx.amount || 0).toLocaleString('id-ID')}`, inline: true },
-                            { name: '💸 Nominal Diklaim', value: `Rp ${nominalNum.toLocaleString('id-ID')}`, inline: true },
-                            { name: '🏦 Pengirim', value: pengirim, inline: true },
-                            { name: '🖥️ Server ID', value: `\`${tx.serverId}\``, inline: false }
-                        )
-                        .setFooter({ text: 'Cek mutasi rekening Anda sebelum approve!' })
-                        .setTimestamp();
-
-                    const approveRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`btn_app_man_${txId}`)
-                            .setLabel('✅ Setujui (Approve)')
-                            .setStyle(ButtonStyle.Success),
-                        new ButtonBuilder()
-                            .setCustomId(`btn_rej_man_${txId}`)
-                            .setLabel('❌ Tolak (Reject)')
-                            .setStyle(ButtonStyle.Danger)
-                    );
-
-                    await ownerUser.send({ embeds: [approveEmbed], components: [approveRow] });
-                }
-
-                // Edit pesan invoice jadi status menunggu
-                try {
-                    await interaction.message.edit({
-                        embeds: [
-                            new EmbedBuilder()
-                                .setColor(0xf59e0b)
-                                .setTitle('⏳ Menunggu Verifikasi Owner')
-                                .setDescription(`Konfirmasi transfer Anda sudah diterima dan dikirim ke Owner untuk diverifikasi.\n\n> 🪪 ID: \`${txId}\`\n> 💸 Diklaim: **Rp ${nominalNum.toLocaleString('id-ID')}**\n> 🏦 Pengirim: **${pengirim}**\n\nHarap tunggu, Owner akan segera mengecek mutasi rekening.`)
-                                .setFooter({ text: '4llboTracker Billing' })
-                                .setTimestamp()
-                        ],
-                        files: [],
-                        components: []
-                    });
-                } catch (e) { }
-
-                return interaction.editReply({ content: '✅ Konfirmasi transfer berhasil dikirim ke Owner! Lisensi akan diaktifkan setelah Owner memverifikasi.' });
-            } catch (err) {
-                console.error('Gagal proses konfirmasi bayar:', err.message);
-                return interaction.editReply({ content: `❌ Terjadi kesalahan: ${err.message}` });
             }
         } else if (interaction.customId === 'modal_genkey') {
             const durationRaw = interaction.fields.getTextInputValue('input_duration').trim();
@@ -2926,51 +2866,25 @@ client.on('interactionCreate', async (interaction) => {
         return createQRISInvoiceInteraction(interaction, duration, true);
     }
 
-    // Handle Konfirmasi Bayar — tampilkan modal isi nominal & pengirim
+    // Handle Konfirmasi Bayar — beri arahan untuk upload screenshot pakai /bayar atau !bayar
     if (customId.startsWith('konfirmasi_bayar_')) {
-        const txId = customId.replace('konfirmasi_bayar_', '');
-
-        try {
-            const [rows] = await pool.query(
-                'SELECT userId FROM pending_payments WHERE txId = ? AND status = "PENDING"',
-                [txId]
-            );
-            if (rows.length === 0) {
-                return interaction.reply({ content: '❌ Tagihan tidak ditemukan atau sudah diproses.', ephemeral: true });
-            }
-            if (rows[0].userId !== interaction.user.id && !isOwner(interaction.user.id)) {
-                return interaction.reply({ content: '❌ Hanya pembuat tagihan yang bisa mengkonfirmasi pembayaran ini.', ephemeral: true });
-            }
-        } catch (err) {
-            return interaction.reply({ content: '❌ Gagal mengecek transaksi. Coba lagi.', ephemeral: true });
-        }
-
-        const { ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
-        const modal = new ModalBuilder()
-            .setCustomId(`modal_konfirmasi_${txId}`)
-            .setTitle('Konfirmasi Pembayaran');
-
-        const nominalInput = new TextInputBuilder()
-            .setCustomId('input_nominal')
-            .setLabel('Nominal yang sudah ditransfer (Rp)')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Contoh: 20000')
-            .setRequired(true);
-
-        const pengirimInput = new TextInputBuilder()
-            .setCustomId('input_pengirim')
-            .setLabel('Nama pengirim / nama bank')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Contoh: BCA a.n. Budi Santoso')
-            .setRequired(true);
-
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(nominalInput),
-            new ActionRowBuilder().addComponents(pengirimInput)
-        );
-
-        await interaction.showModal(modal);
-        return;
+        return interaction.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setColor(0x5865F2)
+                    .setTitle('📸 Unggah Bukti Pembayaran')
+                    .setDescription(
+                        `Silakan jalankan perintah slash berikut untuk mengunggah bukti pembayaran:\n\n` +
+                        `1️⃣ Gunakan command: \`/bayar\` lalu lampirkan gambar bukti transfer Anda.\n` +
+                        `2️⃣ *(Optional)* Pilih opsi \`durasi\` sesuai dengan paket yang Anda pilih.\n\n` +
+                        `Atau Anda juga bisa menggunakan prefix command:\n` +
+                        `💬 Ketik \`!bayar [durasi]\` sambil melampirkan gambar bukti transfer Anda.`
+                    )
+                    .setFooter({ text: '4llboTracker' })
+                    .setTimestamp()
+            ],
+            ephemeral: true
+        });
     }
 
 
@@ -3528,7 +3442,7 @@ client.on('messageCreate', async (message) => {
         const attachment = message.attachments.first();
 
         if (!attachment || !attachment.contentType || !attachment.contentType.startsWith('image/')) {
-            return message.reply('❌ **Bukti Invalid!** Harap ketik `!bayar` sambil mengunggah/melampirkan foto/screenshot bukti transfer pembayaran QRIS Anda.');
+            return message.reply('❌ **Bukti Invalid!** Harap ketik `!bayar [durasi]` sambil mengunggah/melampirkan foto/screenshot bukti transfer pembayaran QRIS Anda.\n*Contoh: `!bayar 90`*');
         }
 
         if (!pool) {
@@ -3538,11 +3452,19 @@ client.on('messageCreate', async (message) => {
         // Generate ID Transaksi Manual Unik
         const txId = 'MAN_' + Math.floor(100000 + Math.random() * 900000);
 
+        const durationRaw = args[0] || '30';
+        let duration = parseInt(durationRaw);
+        if (![30, 90, 365].includes(duration)) duration = 30;
+
+        let amount = 20000;
+        if (duration === 90) amount = 50000;
+        if (duration === 365) amount = 180000;
+
         try {
             // Simpan ke database pending_payments
             await pool.query(
                 'INSERT INTO pending_payments (txId, serverId, userId, amount, duration, status) VALUES (?, ?, ?, ?, ?, ?)',
-                [txId, guildId, message.author.id, 20000, 30, 'PENDING_MANUAL']
+                [txId, guildId, message.author.id, amount, duration, 'PENDING_MANUAL']
             );
 
             // Kirim Verifikasi ke Admin/Owner via DM dan Log Channel
@@ -3553,8 +3475,8 @@ client.on('messageCreate', async (message) => {
                     `Ada unggahan bukti transfer manual baru dari server **${message.guild?.name || 'Unknown'}**.\n\n` +
                     `• **Server ID**: \`${guildId}\`\n` +
                     `• **Pengirim**: <@${message.author.id}> (\`${message.author.id}\`)\n` +
-                    `• **Durasi**: \`30 Hari\`\n` +
-                    `• **Tarif**: \`Rp 20.000\`\n` +
+                    `• **Durasi**: \`${duration} Hari\`\n` +
+                    `• **Tarif**: \`Rp ${amount.toLocaleString('id-ID')}\`\n` +
                     `• **Transaction ID**: \`${txId}\``
                 )
                 .setImage(attachment.url)
